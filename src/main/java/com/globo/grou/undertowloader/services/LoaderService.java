@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.xnio.*;
 import org.xnio.channels.StreamSinkChannel;
+import org.xnio.channels.StreamSourceChannel;
 import org.xnio.ssl.XnioSsl;
 
 import javax.net.ssl.SSLContext;
@@ -25,6 +26,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -41,10 +43,12 @@ public class LoaderService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LoaderService.class);
     private static final long REQUEST_TIMEOUT = 1000L;
-    private static final int MIN_TOTAL_DURATION_SEC = 10;
+    private static final int MIN_TOTAL_DURATION_SEC = 60;
     private static final int NUM_USERS = 100;
-    private static final int NUM_REQUESTS = 100;
+    private static final int NUM_PARALLEL_REQUESTS = 100;
     private static final java.net.URI URI;
+    private final AtomicLong requestsTotal = new AtomicLong(0L);
+
     static {
         String uriTemp = System.getenv("TARGET");
         if (uriTemp == null) {
@@ -57,7 +61,13 @@ public class LoaderService {
     public void run() {
         LOGGER.warn("Running loader");
         long startLoad = System.currentTimeMillis();
+        long start = System.currentTimeMillis();
         IntStream.rangeClosed(0, NUM_USERS).parallel().forEach(u -> doUserRequests(startLoad));
+        long duration = System.currentTimeMillis() - start;
+        LOGGER.info("Duration (ms): " + duration);
+        LOGGER.info("Requests total: " + requestsTotal.get());
+        LOGGER.info("Num users: " + NUM_USERS);
+
         LOGGER.warn("Finished loader");
     }
 
@@ -87,8 +97,8 @@ public class LoaderService {
 
         // do requests
         while (System.currentTimeMillis() - startLoad < (MIN_TOTAL_DURATION_SEC * 1000)) {
-            final var numRequestsRef = new AtomicInteger(NUM_REQUESTS);
-            IntStream.rangeClosed(1, NUM_REQUESTS).parallel().forEach(i -> sendRequest(connection, numRequestsRef, startLoad));
+            final var numRequestsRef = new AtomicInteger(NUM_PARALLEL_REQUESTS);
+            IntStream.rangeClosed(1, NUM_PARALLEL_REQUESTS).parallel().forEach(i -> sendRequest(connection, numRequestsRef, startLoad));
             long start = System.currentTimeMillis();
             while (numRequestsRef.get() > 0 && System.currentTimeMillis() - start < REQUEST_TIMEOUT) {
                 try {
@@ -112,6 +122,7 @@ public class LoaderService {
         // abort if expired
         if (System.currentTimeMillis() - startLoad > (MIN_TOTAL_DURATION_SEC * 1000)) return;
 
+        requestsTotal.incrementAndGet();
         try {
             // prepare request
             ClientRequest request = new ClientRequest().setPath(URI.getPath()).setMethod(Methods.GET);
