@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.xnio.*;
 import org.xnio.channels.StreamSinkChannel;
-import org.xnio.channels.StreamSourceChannel;
 import org.xnio.ssl.XnioSsl;
 
 import javax.net.ssl.SSLContext;
